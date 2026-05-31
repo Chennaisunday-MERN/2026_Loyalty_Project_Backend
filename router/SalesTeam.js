@@ -455,6 +455,78 @@ router.get('/adminviewallprofile',verifyToken,async(req,res)=>{
         return res.status(500).json({messgae:'Internal server error'},err);
     }
 })
+
+router.get('/admin-performance', verifyToken, async (req, res) => {
+    if (req.user.role !== 'md') {
+        return res.status(403).json({
+            message: 'Permission Denied, Only Admin Head can view performance'
+        });
+    }
+
+    try {
+        const employees = await CommonTeam.find({
+            role: { $in: ['sales head', 'Sales Employee', 'Lead filler'] }
+        }).select('Eid name email role');
+
+        const enquiries = await HeadEnquiry.find({}).select('Eid Status LeadDetails createdAt').lean();
+        const convertedCustomers = await Customerconvertion.find({}).select('customerconvert').lean();
+        const lostLeads = await CustomerNotConverted.find({}).select('Eid EnquiryNo createdAt').lean();
+
+        const performanceMap = {};
+        employees.forEach((employee) => {
+            performanceMap[employee.Eid] = {
+                Eid: employee.Eid,
+                name: employee.name,
+                email: employee.email,
+                role: employee.role,
+                assignedLeads: 0,
+                hotLeads: 0,
+                warmLeads: 0,
+                coldLeads: 0,
+                closedLeads: 0,
+                lostLeads: 0,
+                conversionRate: 0,
+            };
+        });
+
+        enquiries.forEach((enquiry) => {
+            if (!performanceMap[enquiry.Eid]) return;
+            const record = performanceMap[enquiry.Eid];
+            record.assignedLeads += 1;
+            const priority = String(enquiry?.LeadDetails?.LeadPriority || '').toLowerCase();
+            if (priority === 'high' || priority === 'hot') record.hotLeads += 1;
+            else if (priority === 'medium' || priority === 'warm') record.warmLeads += 1;
+            else record.coldLeads += 1;
+        });
+
+        convertedCustomers.forEach((customer) => {
+            (customer.customerconvert || []).forEach((conversion) => {
+                if (conversion.Convertedstatus === 'yes' && performanceMap[conversion.Eid]) {
+                    performanceMap[conversion.Eid].closedLeads += 1;
+                }
+            });
+        });
+
+        lostLeads.forEach((lead) => {
+            if (performanceMap[lead.Eid]) {
+                performanceMap[lead.Eid].lostLeads += 1;
+            }
+        });
+
+        const performance = Object.values(performanceMap)
+            .map((record) => ({
+                ...record,
+                conversionRate: record.assignedLeads > 0
+                    ? Math.round((record.closedLeads / record.assignedLeads) * 100)
+                    : 0,
+            }))
+            .sort((a, b) => b.closedLeads - a.closedLeads || b.assignedLeads - a.assignedLeads);
+
+        return res.status(200).json({ performance });
+    } catch (err) {
+        return res.status(500).json({ message: 'Internal server error', error: err.message || err });
+    }
+});
 router.get('/saleshead/:Eid',verifyToken,async(req,res)=>{
      
   try{
@@ -499,6 +571,24 @@ router.post('/leadentry',verifyToken,async(req,res)=>{
         return res.status(500).json({messgae:'Internal server error',err});
     }
 })
+
+router.delete('/leadenquiry/:EnquiryNo', verifyToken, async (req, res) => {
+    if (!['md', 'sales head'].includes(req.user.role)) {
+        return res.status(403).json({
+            message: 'Permission denied. Only admin and sales head can delete leads.'
+        });
+    }
+
+    try {
+        const deleted = await HeadEnquiry.findOneAndDelete({ EnquiryNo: req.params.EnquiryNo });
+        if (!deleted) {
+            return res.status(404).json({ message: 'Lead enquiry not found' });
+        }
+        return res.status(200).json({ message: 'Lead enquiry deleted successfully', data: deleted });
+    } catch (err) {
+        return res.status(500).json({ message: 'Internal server error', error: err.message || err });
+    }
+});
 router.put('/assignedto', verifyToken, async (req, res) => {
     const { Eid, EnquiryNo } = req.body;
     console.log('Received Eid:', Eid);
@@ -579,7 +669,7 @@ router.get('/getenquiryforsaletam/:Eid',verifyToken,async(req,res)=>{
     const {Eid} = req.params;
     console.log(req.params)
     try{
-     const getdatas = await HeadEnquiry.find({Eid:Eid });
+     const getdatas = await HeadEnquiry.find({Eid:Eid }).sort({ createdAt: -1 });
      console.log(Eid);
      console.log(getdatas);
      if (getdatas && getdatas.length > 0) {
@@ -983,8 +1073,8 @@ router.get('/headenquiry', verifyToken, async (req, res) => {
       }
   
       const enquiries = await HeadEnquiry.find({
-        status: { $ne: 'Enquiry-1stage' }  
-      });
+        Status: { $ne: 'Enquiry-1stage' }  
+      }).sort({ createdAt: -1 });
   
       if (enquiries.length === 0) {
         return res.status(404).json({
@@ -1149,7 +1239,7 @@ router.get('/todayviewleadenquiry', verifyToken, async (req, res) => {
         
         const viewenquiries = await HeadEnquiry.find({
             createdAt: { $gte: todayStart, $lte: todayEnd }  
-        }).select(' EnquiryNo LeadDetails ContactDetails AddressDetails DescriptionDetails createdAt');  
+        }).select(' EnquiryNo LeadDetails ContactDetails AddressDetails DescriptionDetails createdAt').sort({ createdAt: -1 });  
 
         if (!viewenquiries || viewenquiries.length === 0) {
             return res.status(400).json({
@@ -1312,7 +1402,7 @@ router.get('/alldayleadenquiry', verifyToken, async (req, res) => {
         // Fetching enquiries based on the date range
         const viewenquiries = await HeadEnquiry.find({
             ...dateFilter
-        });
+        }).sort({ createdAt: -1 });
 
         // If no enquiries are found
         if (!viewenquiries || viewenquiries.length === 0) {
