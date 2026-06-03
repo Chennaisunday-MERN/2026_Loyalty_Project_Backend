@@ -9,6 +9,7 @@ const perfomainvoice = require ('./router/PUI');
 const purchaseorder = require ('./router/PUO');
 const customerconversion = require('./router/Customerconvertion')
 const emailLeads = require('./router/EmailLeads');
+const websiteSubmissions = require('./router/WebsiteSubmissions');
 const cors = require('cors');
 const bodyparser = require('body-parser');
 const corsOption = "http://localhost:5173";
@@ -36,6 +37,7 @@ app.use('/api/cc',customerconversion)
 app.use('/api-purchaseorder',purchaseorder)
 app.use('/api-invoice',perfomainvoice)
 app.use('/api/email-leads', emailLeads)
+app.use('/api', websiteSubmissions)
 
 
 app.get('/', async (req, res) => {
