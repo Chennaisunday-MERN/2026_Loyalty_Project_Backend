@@ -33,6 +33,12 @@ const Quatation = new mongoose.Schema({
       type: String,
       required: true
     },
+    LP: {
+      type: String,
+    },
+    discount: {
+      type: String,
+    },
     Total: {
       type: String,
     },
